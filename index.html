@@ -27,6 +27,7 @@ h1,h2,p{margin:0}
 .visor{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
 .visor video{width:100%;height:100%;object-fit:cover}
 .marco{position:absolute;left:50%;top:50%;width:64%;aspect-ratio:1;max-width:340px;transform:translate(-50%,-50%);border:4px solid rgba(255,255,255,.85);border-radius:28px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none}
+#diag{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:13px;color:#fff;text-shadow:0 1px 3px #000;pointer-events:none}
 #cam-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:32px;line-height:1.5;background:var(--ink)}
 .pie{padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:var(--ink)}
 .sw{display:flex;align-items:center;gap:12px;font-size:15px;color:var(--mut)}
@@ -99,6 +100,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;background:v
   <div class="visor">
     <video id="video" playsinline muted></video>
     <div class="marco"></div>
+    <p id="diag">Iniciando cámara…</p>
     <p id="cam-error" hidden>No se pudo abrir la cámara. Permite el acceso a la cámara en el navegador y recarga la página.</p>
   </div>
   <footer class="pie">
@@ -266,16 +268,19 @@ async function vistaBarra() {
     video.srcObject = stream;
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
     await video.play();
+    $('#diag').textContent = 'Cámara lista. Apunta al QR.';
   } catch (e) { $('#cam-error').hidden = false; return; }
   const ciclo = () => {
+    try {
     if (!busy && video.readyState === 4 && video.videoWidth) {
       const w = Math.min(1280, video.videoWidth);
       const h = Math.round(video.videoHeight * w / video.videoWidth);
       canvas.width = w; canvas.height = h;
       ctx.drawImage(video, 0, 0, w, h);
       const q = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
-      if (q && q.data) alEscanear(q.data.trim());
+      if (q && q.data) { $('#diag').textContent = 'QR leído, consultando…'; alEscanear(q.data.trim()); }
     }
+    } catch (e) { $('#diag').textContent = 'Error del lector: ' + e.message; }
     setTimeout(() => requestAnimationFrame(ciclo), 120);
   };
   ciclo();
@@ -288,14 +293,15 @@ async function alEscanear(data) {
   try { await procesar(data); }
   catch (e) { await resultado('warn', 'Error de conexión', 'Revisa el internet e intenta otra vez.'); }
   busy = false;
+  $('#diag').textContent = 'Cámara lista. Apunta al QR.';
   last.at = Date.now();
 }
 
 async function procesar(token) {
   if (!TOKEN_OK.test(token)) return resultado('warn', 'QR no válido', 'Este código no es de la fiesta.');
   const ref = db.ref(RUTA + '/' + await sha256(token));
-  const d = (await ref.once('value')).val();
-  if (!d) return resultado('warn', 'QR no válido', 'Este código no está registrado.');
+  const d = (await Promise.race([ref.once('value'), new Promise((_, no) => setTimeout(() => no(new Error('tiempo')), 10000))])).val();
+  if (!d) return resultado('warn', 'QR no válido', 'Este código no está registrado. ¿Pulsaste "Crear registros" con la misma clave?');
 
   const etiqueta = d.nombre || 'Invitado N° ' + pad(d.n);
 
