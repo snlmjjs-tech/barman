@@ -29,7 +29,7 @@ h1,h2,p{margin:0}
 .marco{position:absolute;left:50%;top:50%;width:64%;aspect-ratio:1;max-width:340px;transform:translate(-50%,-50%);border:4px solid rgba(255,255,255,.85);border-radius:28px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none}
 #diag{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:13px;color:#fff;text-shadow:0 1px 3px #000;pointer-events:none}
 #cam-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:32px;line-height:1.5;background:var(--ink)}
-.pie{padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:var(--ink)}
+.pie{padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:var(--ink);display:grid;gap:12px}
 .sw{display:flex;align-items:center;gap:12px;font-size:15px;color:var(--mut)}
 .sw input{width:22px;height:22px;accent-color:var(--acc)}
 
@@ -47,7 +47,7 @@ h1,h2,p{margin:0}
 .dlg h2{font-size:22px}
 .dlg p{color:var(--mut);line-height:1.45}
 .dlg .acc{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-input[type=text],input[type=password],input[type=search]{width:100%;background:var(--ink);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:16px}
+input[type=text],input[type=password],input[type=search],input[type=number]{width:100%;background:var(--ink);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:16px}
 
 /* Invitado */
 #v-inv{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center}
@@ -68,6 +68,8 @@ input[type=text],input[type=password],input[type=search]{width:100%;background:v
 .stat span{color:var(--mut);font-size:13px}
 .fila{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .fila small{color:var(--mut)}
+.fila .ctl{display:flex;gap:6px;align-items:center}
+.fila .ctl button{border:1px solid var(--line);background:var(--ink);color:inherit;border-radius:10px;padding:6px 12px;font-weight:700}
 #a-msg{color:var(--warn);min-height:1.2em}
 #hoja{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
 .tarjeta{background:#fff;color:#111;padding:10px 6px;text-align:center;border:1px dashed #999;break-inside:avoid;line-height:1.1}
@@ -105,6 +107,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;background:v
   </div>
   <footer class="pie">
     <label class="sw"><input type="checkbox" id="solo"> Solo consultar (no descuenta)</label>
+    <button class="btn sec" id="btn-manual">Ingresar número a mano</button>
   </footer>
 </section>
 
@@ -138,6 +141,17 @@ input[type=text],input[type=password],input[type=search]{width:100%;background:v
       <button class="btn sec" id="btn-print" hidden>Imprimir</button>
     </div>
     <p id="a-msg"></p>
+  </div>
+
+  <div class="card no-print">
+    <h2>Tragos y reinicio</h2>
+    <p>Tragos por persona (se aplica al crear registros y al reiniciar).</p>
+    <div class="row">
+      <input type="number" id="cfg-tragos" min="1" max="50" inputmode="numeric" style="max-width:110px">
+      <button class="btn sec" id="btn-cfg">Guardar</button>
+      <button class="btn" id="btn-reset" style="background:#c0392b">Reiniciar todo</button>
+    </div>
+    <p>Reiniciar deja a todos con los tragos indicados y borra los nombres. Úsalo después de las pruebas.</p>
   </div>
 
   <div class="card no-print">
@@ -183,7 +197,8 @@ const CONFIG = {
   projectId: "barman-82619",
   appId: "1:834734365095:web:660404db1f796c111c7e82"
 };
-const TRAGOS_POR_PERSONA = 5;
+let TRAGOS_POR_PERSONA = 5; // valor inicial; se cambia desde el panel de administrador
+const RUTA_CFG = "configuracion/tragos";
 const CANTIDAD_QR = 500;
 const SEGUNDOS_DOBLE_ESCANEO = 60;
 const RUTA = "tragos";
@@ -212,20 +227,19 @@ function iniciarFirebase() {
   return true;
 }
 const params = new URLSearchParams(location.search);
+function seguirConfig(alCambiar) {
+  db.ref(RUTA_CFG).on('value', s => { const v = Number(s.val()); if (v >= 1) TRAGOS_POR_PERSONA = v; if (alCambiar) alCambiar(); });
+}
 window.addEventListener('hashchange', () => location.reload());
-if (!iniciarFirebase()) show('v-setup');
-else if (params.get('t')) vistaInvitado(params.get('t'));
-else if (location.hash === '#admin') vistaAdmin();
-else vistaBarra();
 
 /* ---- Diálogo y resultado ---- */
-function dialogo({ titulo, texto = '', pedirNombre = false, okTxt = 'Aceptar', noTxt = 'Cancelar' }) {
+function dialogo({ titulo, texto = '', pedirNombre = false, placeholder = 'Nombre del invitado', numerico = false, okTxt = 'Aceptar', noTxt = 'Cancelar' }) {
   return new Promise(res => {
     $('#dlg-t').textContent = titulo;
     $('#dlg-p').textContent = texto;
     $('#dlg-p').hidden = !texto;
     const inp = $('#dlg-in');
-    inp.hidden = !pedirNombre; inp.value = '';
+    inp.hidden = !pedirNombre; inp.value = ''; inp.placeholder = placeholder; inp.inputMode = numerico ? 'numeric' : 'text';
     $('#dlg-ok').textContent = okTxt; $('#dlg-no').textContent = noTxt;
     $('#dlg').hidden = false;
     if (pedirNombre) setTimeout(() => inp.focus(), 60);
@@ -260,28 +274,40 @@ let busy = false, last = { t: '', at: 0 }, entregados = 0;
 
 async function vistaBarra() {
   show('v-barra');
+  seguirConfig();
+  $('#btn-manual').onclick = manual;
   const video = $('#video');
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     video.srcObject = stream;
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
     await video.play();
     $('#diag').textContent = 'Cámara lista. Apunta al QR.';
   } catch (e) { $('#cam-error').hidden = false; return; }
-  const ciclo = () => {
+  const nativo = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+  const ciclo = async () => {
     try {
-    if (!busy && video.readyState === 4 && video.videoWidth) {
-      const w = Math.min(1280, video.videoWidth);
-      const h = Math.round(video.videoHeight * w / video.videoWidth);
-      canvas.width = w; canvas.height = h;
-      ctx.drawImage(video, 0, 0, w, h);
-      const q = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
-      if (q && q.data) { $('#diag').textContent = 'QR leído, consultando…'; alEscanear(q.data.trim()); }
-    }
+      if (!busy && video.readyState === 4 && video.videoWidth) {
+        let dato = null;
+        if (nativo) {
+          const r = await nativo.detect(video);
+          if (r.length) dato = r[0].rawValue;
+        } else {
+          // solo la zona central (donde está el cuadro): menos pixeles, lectura más rápida
+          const lado = Math.round(Math.min(video.videoWidth, video.videoHeight) * 0.85);
+          const sx = Math.round((video.videoWidth - lado) / 2), sy = Math.round((video.videoHeight - lado) / 2);
+          const w = Math.min(lado, 540);
+          canvas.width = w; canvas.height = w;
+          ctx.drawImage(video, sx, sy, lado, lado, 0, 0, w, w);
+          const q = jsQR(ctx.getImageData(0, 0, w, w).data, w, w, { inversionAttempts: 'dontInvert' });
+          if (q && q.data) dato = q.data;
+        }
+        if (dato) { $('#diag').textContent = 'QR leído, consultando…'; alEscanear(dato.trim()); }
+      }
     } catch (e) { $('#diag').textContent = 'Error del lector: ' + e.message; }
-    setTimeout(() => requestAnimationFrame(ciclo), 120);
+    setTimeout(() => requestAnimationFrame(ciclo), 30);
   };
   ciclo();
 }
@@ -302,7 +328,26 @@ async function procesar(token) {
   const ref = db.ref(RUTA + '/' + await sha256(token));
   const d = (await Promise.race([ref.once('value'), new Promise((_, no) => setTimeout(() => no(new Error('tiempo')), 10000))])).val();
   if (!d) return resultado('warn', 'QR no válido', 'Este código no está registrado. ¿Pulsaste "Crear registros" con la misma clave?');
+  return atender(ref, d);
+}
 
+async function manual() {
+  if (busy) return;
+  busy = true;
+  try {
+    const v = await dialogo({ titulo: 'Ingresar número', texto: 'Escribe el número que está bajo el QR (ej. 021).', pedirNombre: true, placeholder: 'Número', numerico: true, okTxt: 'Buscar', noTxt: 'Cancelar' });
+    if (!v) return;
+    const n = parseInt(v, 10);
+    if (!(n >= 1 && n <= CANTIDAD_QR)) return await resultado('warn', 'Número no válido', 'Debe estar entre 1 y ' + CANTIDAD_QR + '.');
+    const todo = (await Promise.race([db.ref(RUTA).once('value'), new Promise((_, no) => setTimeout(() => no(new Error('tiempo')), 10000))])).val() || {};
+    const h = Object.keys(todo).find(k => todo[k].n === n);
+    if (!h) return await resultado('warn', 'No registrado', 'N° ' + pad(n) + ' no existe. ¿Se crearon los registros?');
+    await atender(db.ref(RUTA + '/' + h), todo[h]);
+  } catch (e) { await resultado('warn', 'Error de conexión', 'Revisa el internet e intenta otra vez.'); }
+  finally { busy = false; last.at = Date.now(); }
+}
+
+async function atender(ref, d) {
   const etiqueta = d.nombre || 'Invitado N° ' + pad(d.n);
 
   if ($('#solo').checked) {
@@ -370,7 +415,10 @@ function claveMaestra() {
 }
 function vistaAdmin() {
   show('v-admin');
-  $('#a-info').textContent = `${CANTIDAD_QR} QR con ${TRAGOS_POR_PERSONA} tragos cada uno. La clave maestra genera siempre los mismos QR: anótala y úsala igual cada vez.`;
+  $('#a-info').textContent = `${CANTIDAD_QR} QR. La clave maestra genera siempre los mismos QR: anótala y úsala igual cada vez.`;
+  $('#btn-cfg').onclick = guardarCfg;
+  $('#btn-reset').onclick = reiniciar;
+  seguirConfig(() => { if (document.activeElement !== $('#cfg-tragos')) $('#cfg-tragos').value = TRAGOS_POR_PERSONA; lista(); });
   $('#btn-crear').onclick = crear;
   $('#btn-hoja').onclick = hoja;
   $('#btn-csv').onclick = csv;
@@ -402,7 +450,7 @@ async function hoja() {
     const c = document.createElement('div'); c.className = 'tarjeta';
     const q = document.createElement('div'); c.appendChild(q);
     new QRCode(q, { text: await tokenDe(clave, i), width: 112, height: 112, correctLevel: QRCode.CorrectLevel.M });
-    const p = document.createElement('p'); p.textContent = 'N° ' + pad(i) + ' · ' + TRAGOS_POR_PERSONA + ' tragos';
+    const p = document.createElement('p'); p.textContent = 'N° ' + pad(i);
     c.appendChild(p); g.appendChild(c);
     if (i % 25 === 0) await new Promise(r => setTimeout(r));
   }
@@ -422,6 +470,24 @@ async function csv() {
   msg('Descargado. Cada enlace muestra el QR de un invitado, útil para enviarlo por WhatsApp.');
 }
 
+async function guardarCfg() {
+  const v = parseInt($('#cfg-tragos').value, 10);
+  if (!(v >= 1 && v <= 50)) { msg('Escribe un número de tragos entre 1 y 50.'); return; }
+  try { await db.ref(RUTA_CFG).set(v); TRAGOS_POR_PERSONA = v; msg(`Guardado: ${v} tragos por persona. Pulsa "Reiniciar todo" para aplicarlo a los QR ya creados.`); }
+  catch (e) { msg('No se pudo guardar. Revisa las reglas de Firebase y el internet.'); }
+}
+
+async function reiniciar() {
+  const n = Object.keys(datos).length;
+  if (!n) { msg('No hay registros para reiniciar.'); return; }
+  const ok = await dialogo({ titulo: '¿Reiniciar todo?', texto: `Los ${n} invitados quedarán con ${TRAGOS_POR_PERSONA} tragos y sin nombre. No se puede deshacer.`, okTxt: 'Reiniciar', noTxt: 'Cancelar' });
+  if (!ok) return;
+  const u = {};
+  Object.keys(datos).forEach(h => { u[h + '/restantes'] = TRAGOS_POR_PERSONA; u[h + '/nombre'] = null; u[h + '/ultimo'] = null; });
+  try { await db.ref(RUTA).update(u); msg(`Listo: ${n} invitados reiniciados con ${TRAGOS_POR_PERSONA} tragos.`); }
+  catch (e) { msg('No se pudo reiniciar. Revisa las reglas de Firebase y el internet.'); }
+}
+
 function resumen() {
   const v = Object.values(datos);
   $('#r-tot').textContent = v.length;
@@ -432,7 +498,7 @@ function resumen() {
 function lista() {
   const q = $('#buscar').value.trim().toLowerCase();
   const box = $('#lista'); box.innerHTML = '';
-  const filas = Object.values(datos)
+  const filas = Object.entries(datos).map(([h, x]) => ({ ...x, h }))
     .filter(x => q ? ((x.nombre || '').toLowerCase().includes(q) || String(x.n) === q || pad(x.n) === q) : x.nombre)
     .sort((a, b) => a.n - b.n).slice(0, 100);
   if (!filas.length) {
@@ -444,9 +510,22 @@ function lista() {
     const f = document.createElement('div'); f.className = 'fila';
     const a = document.createElement('span'); a.textContent = x.nombre || 'Sin nombre';
     const s = document.createElement('small'); s.textContent = `N° ${pad(x.n)} · ${x.restantes} de ${TRAGOS_POR_PERSONA}`;
-    f.append(a, s); box.appendChild(f);
+    const info = document.createElement('div'); info.append(a, document.createElement('br'), s);
+    const ctl = document.createElement('div'); ctl.className = 'ctl';
+    [['−', -1], ['+', 1]].forEach(([t, dlt]) => {
+      const b = document.createElement('button'); b.textContent = t;
+      b.onclick = () => db.ref(RUTA + '/' + x.h + '/restantes').transaction(c => Math.max(0, (c || 0) + dlt));
+      ctl.appendChild(b);
+    });
+    f.append(info, ctl); box.appendChild(f);
   });
 }
+
+/* ---- Inicio ---- */
+if (!iniciarFirebase()) show('v-setup');
+else if (params.get('t')) vistaInvitado(params.get('t'));
+else if (location.hash === '#admin') vistaAdmin();
+else vistaBarra();
 </script>
 </body>
 </html>
