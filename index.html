@@ -262,20 +262,21 @@ async function vistaBarra() {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     video.srcObject = stream;
+    try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
     await video.play();
   } catch (e) { $('#cam-error').hidden = false; return; }
   const ciclo = () => {
     if (!busy && video.readyState === 4 && video.videoWidth) {
-      const w = Math.min(640, video.videoWidth);
+      const w = Math.min(1280, video.videoWidth);
       const h = Math.round(video.videoHeight * w / video.videoWidth);
       canvas.width = w; canvas.height = h;
       ctx.drawImage(video, 0, 0, w, h);
-      const q = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+      const q = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
       if (q && q.data) alEscanear(q.data.trim());
     }
-    setTimeout(() => requestAnimationFrame(ciclo), 90);
+    setTimeout(() => requestAnimationFrame(ciclo), 120);
   };
   ciclo();
 }
