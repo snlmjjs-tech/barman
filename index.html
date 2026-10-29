@@ -186,6 +186,7 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="zbar.js"></script>
 <script src="jsQR.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -199,6 +200,8 @@ const CONFIG = {
 };
 let TRAGOS_POR_PERSONA = 5; // valor inicial; se cambia desde el panel de administrador
 const RUTA_CFG = "configuracion/tragos";
+// Código para reiniciar (se guarda solo su huella SHA-256; no distingue mayúsculas ni espacios)
+const CODIGO_REINICIO_HASH = "8fc7e07a5ac90638fa04ecc1e86514d3388bacf9d98247876001512617b2dc8c";
 const CANTIDAD_QR = 500;
 const SEGUNDOS_DOBLE_ESCANEO = 60;
 const RUTA = "tragos";
@@ -233,13 +236,13 @@ function seguirConfig(alCambiar) {
 window.addEventListener('hashchange', () => location.reload());
 
 /* ---- Diálogo y resultado ---- */
-function dialogo({ titulo, texto = '', pedirNombre = false, placeholder = 'Nombre del invitado', numerico = false, okTxt = 'Aceptar', noTxt = 'Cancelar' }) {
+function dialogo({ titulo, texto = '', pedirNombre = false, placeholder = 'Nombre del invitado', numerico = false, secreto = false, okTxt = 'Aceptar', noTxt = 'Cancelar' }) {
   return new Promise(res => {
     $('#dlg-t').textContent = titulo;
     $('#dlg-p').textContent = texto;
     $('#dlg-p').hidden = !texto;
     const inp = $('#dlg-in');
-    inp.hidden = !pedirNombre; inp.value = ''; inp.placeholder = placeholder; inp.inputMode = numerico ? 'numeric' : 'text';
+    inp.hidden = !pedirNombre; inp.value = ''; inp.placeholder = placeholder; inp.inputMode = numerico ? 'numeric' : 'text'; inp.type = secreto ? 'password' : 'text';
     $('#dlg-ok').textContent = okTxt; $('#dlg-no').textContent = noTxt;
     $('#dlg').hidden = false;
     if (pedirNombre) setTimeout(() => inp.focus(), 60);
@@ -286,6 +289,15 @@ async function vistaBarra() {
     await video.play();
     $('#diag').textContent = 'Cámara lista. Apunta al QR.';
   } catch (e) { $('#cam-error').hidden = false; return; }
+  // copia al lienzo solo la zona central (donde está el cuadro): menos pixeles, lectura más rápida
+  const recortar = () => {
+    const lado = Math.round(Math.min(video.videoWidth, video.videoHeight) * 0.85);
+    const sx = Math.round((video.videoWidth - lado) / 2), sy = Math.round((video.videoHeight - lado) / 2);
+    const w = Math.min(lado, 540);
+    canvas.width = w; canvas.height = w;
+    ctx.drawImage(video, sx, sy, lado, lado, 0, 0, w, w);
+    return { w, h: w };
+  };
   const nativo = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
   const ciclo = async () => {
     try {
@@ -294,6 +306,10 @@ async function vistaBarra() {
         if (nativo) {
           const r = await nativo.detect(video);
           if (r.length) dato = r[0].rawValue;
+        } else if (typeof zbarWasm !== 'undefined') {
+          const { w, h } = recortar();
+          const r = await zbarWasm.scanImageData(ctx.getImageData(0, 0, w, h));
+          if (r.length) dato = r[0].decode();
         } else {
           // solo la zona central (donde está el cuadro): menos pixeles, lectura más rápida
           const lado = Math.round(Math.min(video.videoWidth, video.videoHeight) * 0.85);
@@ -304,10 +320,10 @@ async function vistaBarra() {
           const q = jsQR(ctx.getImageData(0, 0, w, w).data, w, w, { inversionAttempts: 'dontInvert' });
           if (q && q.data) dato = q.data;
         }
-        if (dato) { $('#diag').textContent = 'QR leído, consultando…'; alEscanear(dato.trim()); }
+        if (dato) { $('#diag').textContent = 'QR leído, consultando…'; alEscanear(((dato.match(/[0-9a-f]{24}/) || [dato.trim()])[0])); }
       }
     } catch (e) { $('#diag').textContent = 'Error del lector: ' + e.message; }
-    setTimeout(() => requestAnimationFrame(ciclo), 30);
+    requestAnimationFrame(ciclo);
   };
   ciclo();
 }
@@ -480,8 +496,9 @@ async function guardarCfg() {
 async function reiniciar() {
   const n = Object.keys(datos).length;
   if (!n) { msg('No hay registros para reiniciar.'); return; }
-  const ok = await dialogo({ titulo: '¿Reiniciar todo?', texto: `Los ${n} invitados quedarán con ${TRAGOS_POR_PERSONA} tragos y sin nombre. No se puede deshacer.`, okTxt: 'Reiniciar', noTxt: 'Cancelar' });
-  if (!ok) return;
+  const cod = await dialogo({ titulo: '¿Reiniciar todo?', texto: `Los ${n} invitados quedarán con ${TRAGOS_POR_PERSONA} tragos y sin nombre. No se puede deshacer. Escribe el código de reinicio.`, pedirNombre: true, placeholder: 'Código de reinicio', secreto: true, okTxt: 'Reiniciar', noTxt: 'Cancelar' });
+  if (!cod) return;
+  if (await sha256(cod.toLowerCase().replace(/\s+/g, '')) !== CODIGO_REINICIO_HASH) { msg('Código incorrecto. No se reinició nada.'); return; }
   const u = {};
   Object.keys(datos).forEach(h => { u[h + '/restantes'] = TRAGOS_POR_PERSONA; u[h + '/nombre'] = null; u[h + '/ultimo'] = null; });
   try { await db.ref(RUTA).update(u); msg(`Listo: ${n} invitados reiniciados con ${TRAGOS_POR_PERSONA} tragos.`); }
