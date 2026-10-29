@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Control de tragos</title>
+<style>
+:root{--ink:#17151f;--ink2:#221f2d;--line:#363245;--txt:#f3f1f8;--mut:#a29fb3;--ok:#18b66b;--no:#e5484d;--warn:#f0a020;--acc:#8b7cff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--ink);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+h1,h2,p{margin:0}
+.view{min-height:100dvh}
+.btn{border:0;border-radius:14px;padding:14px 18px;font-weight:700;background:var(--acc);color:#fff}
+.btn.sec{background:var(--ink2);border:1px solid var(--line)}
+.btn:disabled{opacity:.5}
+
+/* Barra (escáner) */
+#v-barra{display:flex;flex-direction:column;height:100dvh;min-height:0}
+.top{display:flex;justify-content:space-between;align-items:center;padding:calc(12px + env(safe-area-inset-top)) 18px 12px}
+.top h1{font-size:22px;font-weight:800;letter-spacing:-.01em}
+.cnt{color:var(--mut);font-size:14px}
+.cnt span{color:var(--txt);font-weight:800;font-size:18px}
+.visor{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+.visor video{width:100%;height:100%;object-fit:cover}
+.marco{position:absolute;left:50%;top:50%;width:64%;aspect-ratio:1;max-width:340px;transform:translate(-50%,-50%);border:4px solid rgba(255,255,255,.85);border-radius:28px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none}
+#cam-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:32px;line-height:1.5;background:var(--ink)}
+.pie{padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:var(--ink)}
+.sw{display:flex;align-items:center;gap:12px;font-size:15px;color:var(--mut)}
+.sw input{width:22px;height:22px;accent-color:var(--acc)}
+
+/* Resultado a pantalla completa */
+.res{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;gap:14px;color:#fff}
+.res.ok{background:var(--ok)}.res.no{background:var(--no)}.res.warn{background:var(--warn);color:#2a1c00}
+.res .ic{font-size:110px;line-height:1;font-weight:800}
+.res .t{font-size:30px;font-weight:800;letter-spacing:-.01em;overflow-wrap:anywhere}
+.res .s{font-size:24px;font-weight:600;opacity:.95}
+.res .h{font-size:14px;opacity:.75;margin-top:18px}
+
+/* Diálogo */
+.dlg{position:fixed;inset:0;z-index:60;background:rgba(10,9,15,.8);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+.dlg .box{width:100%;max-width:440px;background:var(--ink2);border:1px solid var(--line);border-radius:22px;padding:22px;display:grid;gap:14px;margin-bottom:env(safe-area-inset-bottom)}
+.dlg h2{font-size:22px}
+.dlg p{color:var(--mut);line-height:1.45}
+.dlg .acc{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+input[type=text],input[type=password],input[type=search]{width:100%;background:var(--ink);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:16px}
+
+/* Invitado */
+#v-inv{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center}
+#inv-qr{background:#fff;padding:18px;border-radius:24px;line-height:0}
+#inv-qr img,#inv-qr canvas{max-width:100%;height:auto}
+#inv-n{font-size:26px;font-weight:800}
+#inv-s{color:var(--mut);font-size:17px}
+
+/* Admin */
+#v-admin{max-width:760px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top)) 16px 60px;display:grid;gap:16px}
+.card{background:var(--ink2);border:1px solid var(--line);border-radius:18px;padding:18px;display:grid;gap:12px}
+.card h2{font-size:18px}
+.card p{color:var(--mut);font-size:14px;line-height:1.45}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:var(--ink);border-radius:14px;padding:14px}
+.stat b{display:block;font-size:28px;letter-spacing:-.02em}
+.stat span{color:var(--mut);font-size:13px}
+.fila{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.fila small{color:var(--mut)}
+#a-msg{color:var(--warn);min-height:1.2em}
+#hoja{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+.tarjeta{background:#fff;color:#111;padding:10px 6px;text-align:center;border:1px dashed #999;break-inside:avoid;line-height:1.1}
+.tarjeta div{display:flex;justify-content:center;line-height:0}
+.tarjeta p{font-size:12px;color:#111;margin-top:6px;font-weight:600}
+@media print{
+  html,body{background:#fff}
+  .no-print{display:none!important}
+  #v-admin{max-width:none;padding:0;display:block}
+  #hoja{grid-template-columns:repeat(4,1fr)}
+}
+@media (prefers-reduced-motion:no-preference){.res{animation:pop .18s ease-out}}
+@keyframes pop{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<!-- Falta configuración -->
+<section class="view" id="v-setup" hidden style="padding:32px;max-width:520px;margin:0 auto">
+  <h1 style="font-size:24px;margin-bottom:12px">Falta conectar Firebase</h1>
+  <p style="color:var(--mut);line-height:1.5">Abre este archivo y pega la configuración de tu proyecto Firebase en el bloque <b>CONFIG</b> que está al inicio del script (apiKey y databaseURL son obligatorios).</p>
+</section>
+
+<!-- Barra: escáner -->
+<section class="view" id="v-barra" hidden>
+  <header class="top">
+    <h1>Barra</h1>
+    <div class="cnt"><span id="cnt">0</span> entregados</div>
+  </header>
+  <div class="visor">
+    <video id="video" playsinline muted></video>
+    <div class="marco"></div>
+    <p id="cam-error" hidden>No se pudo abrir la cámara. Permite el acceso a la cámara en el navegador y recarga la página.</p>
+  </div>
+  <footer class="pie">
+    <label class="sw"><input type="checkbox" id="solo"> Solo consultar (no descuenta)</label>
+  </footer>
+</section>
+
+<!-- Invitado: muestra su QR -->
+<section class="view" id="v-inv" hidden>
+  <div id="inv-qr"></div>
+  <p id="inv-n"></p>
+  <p id="inv-s">Muestra este código en la barra</p>
+</section>
+
+<!-- Admin -->
+<section class="view" id="v-admin" hidden>
+  <div class="card no-print">
+    <h2>Resumen</h2>
+    <div class="stats">
+      <div class="stat"><b id="r-ent">0</b><span>tragos entregados</span></div>
+      <div class="stat"><b id="r-res">0</b><span>tragos disponibles</span></div>
+      <div class="stat"><b id="r-tot">0</b><span>QR registrados</span></div>
+      <div class="stat"><b id="r-nom">0</b><span>invitados que ya llegaron</span></div>
+    </div>
+  </div>
+
+  <div class="card no-print">
+    <h2>Crear y preparar los QR</h2>
+    <p id="a-info"></p>
+    <input type="password" id="clave" placeholder="Clave maestra (usa siempre la misma)" autocomplete="off">
+    <div class="row">
+      <button class="btn" id="btn-crear">Crear registros</button>
+      <button class="btn sec" id="btn-hoja">Generar hoja de QR</button>
+      <button class="btn sec" id="btn-csv">Descargar enlaces (CSV)</button>
+      <button class="btn sec" id="btn-print" hidden>Imprimir</button>
+    </div>
+    <p id="a-msg"></p>
+  </div>
+
+  <div class="card no-print">
+    <h2>Invitados</h2>
+    <input type="search" id="buscar" placeholder="Buscar por nombre o por número" autocomplete="off">
+    <div id="lista"></div>
+  </div>
+
+  <div id="hoja"></div>
+</section>
+
+<!-- Resultado -->
+<div id="res" class="res" hidden>
+  <div class="ic" id="res-ic"></div>
+  <div class="t" id="res-t"></div>
+  <div class="s" id="res-s"></div>
+  <div class="h">Toca para continuar</div>
+</div>
+
+<!-- Diálogo -->
+<div id="dlg" class="dlg" hidden>
+  <div class="box">
+    <h2 id="dlg-t"></h2>
+    <p id="dlg-p"></p>
+    <input type="text" id="dlg-in" placeholder="Nombre del invitado" maxlength="40" autocomplete="off">
+    <div class="acc">
+      <button class="btn sec" id="dlg-no"></button>
+      <button class="btn" id="dlg-ok"></button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+/* ===================== CONFIG ===================== */
+const CONFIG = {
+  apiKey: "AIzaSyDAu-IigDbRRR1sE1JVR3TJm-nFnz6FAQ8",
+  authDomain: "barman-82619.firebaseapp.com",
+  databaseURL: "https://barman-82619-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "barman-82619",
+  appId: "1:834734365095:web:660404db1f796c111c7e82"
+};
+const TRAGOS_POR_PERSONA = 5;
+const CANTIDAD_QR = 500;
+const SEGUNDOS_DOBLE_ESCANEO = 60;
+const RUTA = "tragos";
+/* ================================================== */
+
+const $ = s => document.querySelector(s);
+const show = id => document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== id);
+const pad = n => String(n).padStart(3, '0');
+const enc = new TextEncoder();
+const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+let db = null;
+
+/* ---- Criptografía: el QR lleva un token; la base guarda solo su hash ---- */
+async function sha256(s) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(s))); }
+async function tokenDe(clave, i) {
+  const k = await crypto.subtle.importKey('raw', enc.encode(clave), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(await crypto.subtle.sign('HMAC', k, enc.encode('invitado-' + i))).slice(0, 24);
+}
+const TOKEN_OK = /^[0-9a-f]{24}$/;
+
+/* ---- Arranque ---- */
+function iniciarFirebase() {
+  if (!CONFIG.apiKey || !CONFIG.databaseURL) return false;
+  firebase.initializeApp(CONFIG);
+  db = firebase.database();
+  return true;
+}
+const params = new URLSearchParams(location.search);
+window.addEventListener('hashchange', () => location.reload());
+if (!iniciarFirebase()) show('v-setup');
+else if (params.get('t')) vistaInvitado(params.get('t'));
+else if (location.hash === '#admin') vistaAdmin();
+else vistaBarra();
+
+/* ---- Diálogo y resultado ---- */
+function dialogo({ titulo, texto = '', pedirNombre = false, okTxt = 'Aceptar', noTxt = 'Cancelar' }) {
+  return new Promise(res => {
+    $('#dlg-t').textContent = titulo;
+    $('#dlg-p').textContent = texto;
+    $('#dlg-p').hidden = !texto;
+    const inp = $('#dlg-in');
+    inp.hidden = !pedirNombre; inp.value = '';
+    $('#dlg-ok').textContent = okTxt; $('#dlg-no').textContent = noTxt;
+    $('#dlg').hidden = false;
+    if (pedirNombre) setTimeout(() => inp.focus(), 60);
+    const fin = v => { $('#dlg').hidden = true; $('#dlg-ok').onclick = null; $('#dlg-no').onclick = null; inp.onkeydown = null; res(v); };
+    $('#dlg-ok').onclick = () => {
+      if (pedirNombre) { const v = inp.value.trim(); if (!v) { inp.focus(); return; } fin(v); }
+      else fin(true);
+    };
+    $('#dlg-no').onclick = () => fin(null);
+    inp.onkeydown = e => { if (e.key === 'Enter') $('#dlg-ok').click(); };
+  });
+}
+function resultado(tipo, titulo, sub, ms = 2400) {
+  return new Promise(res => {
+    const r = $('#res');
+    r.className = 'res ' + tipo;
+    $('#res-ic').textContent = { ok: '✓', no: '✕', warn: '!' }[tipo];
+    $('#res-t').textContent = titulo;
+    $('#res-s').textContent = sub;
+    r.hidden = false;
+    if (navigator.vibrate) navigator.vibrate(tipo === 'ok' ? 60 : [90, 60, 90]);
+    let t;
+    const cerrar = () => { clearTimeout(t); r.hidden = true; r.onclick = null; res(); };
+    t = setTimeout(cerrar, ms);
+    r.onclick = cerrar;
+  });
+}
+const quedan = n => n === 1 ? 'Queda 1 trago' : `Quedan ${n} tragos`;
+
+/* ================= BARRA ================= */
+let busy = false, last = { t: '', at: 0 }, entregados = 0;
+
+async function vistaBarra() {
+  show('v-barra');
+  const video = $('#video');
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+  } catch (e) { $('#cam-error').hidden = false; return; }
+  const ciclo = () => {
+    if (!busy && video.readyState === 4 && video.videoWidth) {
+      const w = Math.min(640, video.videoWidth);
+      const h = Math.round(video.videoHeight * w / video.videoWidth);
+      canvas.width = w; canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      const q = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+      if (q && q.data) alEscanear(q.data.trim());
+    }
+    setTimeout(() => requestAnimationFrame(ciclo), 90);
+  };
+  ciclo();
+}
+
+async function alEscanear(data) {
+  if (data === last.t && Date.now() - last.at < 3000) return;
+  last = { t: data, at: Date.now() };
+  busy = true;
+  try { await procesar(data); }
+  catch (e) { await resultado('warn', 'Error de conexión', 'Revisa el internet e intenta otra vez.'); }
+  busy = false;
+  last.at = Date.now();
+}
+
+async function procesar(token) {
+  if (!TOKEN_OK.test(token)) return resultado('warn', 'QR no válido', 'Este código no es de la fiesta.');
+  const ref = db.ref(RUTA + '/' + await sha256(token));
+  const d = (await ref.once('value')).val();
+  if (!d) return resultado('warn', 'QR no válido', 'Este código no está registrado.');
+
+  const etiqueta = d.nombre || 'Invitado N° ' + pad(d.n);
+
+  if ($('#solo').checked) {
+    return d.restantes > 0
+      ? resultado('ok', etiqueta, quedan(d.restantes), 3000)
+      : resultado('no', etiqueta, 'No quedan tragos disponibles', 3000);
+  }
+  if (d.restantes <= 0) return resultado('no', etiqueta, 'No quedan tragos disponibles', 3000);
+
+  const hace = d.ultimo ? Math.round((Date.now() - d.ultimo) / 1000) : Infinity;
+  if (hace < SEGUNDOS_DOBLE_ESCANEO) {
+    const ok = await dialogo({
+      titulo: '¿Descontar otro trago?',
+      texto: `${etiqueta} fue escaneado hace ${hace} segundos. Si fue por error, cancela.`,
+      okTxt: 'Descontar', noTxt: 'Cancelar'
+    });
+    if (!ok) return;
+  }
+
+  let nombre = d.nombre || null;
+  if (!nombre) {
+    nombre = await dialogo({
+      titulo: 'Primer trago',
+      texto: 'Escribe el nombre del invitado.',
+      pedirNombre: true, okTxt: 'Guardar y descontar', noTxt: 'Cancelar'
+    });
+    if (!nombre) return;
+  }
+
+  const res = await ref.transaction(cur => {
+    if (cur === null) return cur;
+    if (cur.restantes <= 0) return;
+    cur.restantes -= 1;
+    cur.ultimo = Date.now();
+    if (!cur.nombre && nombre) cur.nombre = nombre;
+    return cur;
+  });
+  if (!res.committed) return resultado('no', nombre, 'No quedan tragos disponibles', 3000);
+
+  entregados++; $('#cnt').textContent = entregados;
+  const r = res.snapshot.val().restantes;
+  return resultado('ok', nombre, r > 0 ? quedan(r) : 'Era su último trago', r > 0 ? 2200 : 3000);
+}
+
+/* ================= INVITADO ================= */
+async function vistaInvitado(t) {
+  show('v-inv');
+  if (!TOKEN_OK.test(t)) { $('#inv-n').textContent = 'Enlace no válido'; $('#inv-s').textContent = ''; return; }
+  new QRCode($('#inv-qr'), { text: t, width: 260, height: 260, correctLevel: QRCode.CorrectLevel.M });
+  db.ref(RUTA + '/' + await sha256(t)).on('value', s => {
+    const d = s.val();
+    if (!d) { $('#inv-n').textContent = 'Código no registrado'; return; }
+    $('#inv-n').textContent = d.nombre || 'Invitado N° ' + pad(d.n);
+    $('#inv-s').textContent = d.restantes > 0 ? quedan(d.restantes) + ' · muestra este código en la barra' : 'Ya no quedan tragos';
+  });
+}
+
+/* ================= ADMIN ================= */
+let datos = {};
+const msg = t => $('#a-msg').textContent = t;
+function claveMaestra() {
+  const c = $('#clave').value;
+  if (c.length < 6) { msg('Escribe una clave maestra de al menos 6 caracteres.'); return null; }
+  return c;
+}
+function vistaAdmin() {
+  show('v-admin');
+  $('#a-info').textContent = `${CANTIDAD_QR} QR con ${TRAGOS_POR_PERSONA} tragos cada uno. La clave maestra genera siempre los mismos QR: anótala y úsala igual cada vez.`;
+  $('#btn-crear').onclick = crear;
+  $('#btn-hoja').onclick = hoja;
+  $('#btn-csv').onclick = csv;
+  $('#btn-print').onclick = () => window.print();
+  $('#buscar').oninput = lista;
+  db.ref(RUTA).on('value', s => { datos = s.val() || {}; resumen(); lista(); });
+}
+
+async function crear() {
+  const clave = claveMaestra(); if (!clave) return;
+  $('#btn-crear').disabled = true; msg('Creando registros…');
+  try {
+    const existentes = (await db.ref(RUTA).once('value')).val() || {};
+    const nuevos = {}; let n = 0;
+    for (let i = 1; i <= CANTIDAD_QR; i++) {
+      const h = await sha256(await tokenDe(clave, i));
+      if (!existentes[h]) { nuevos[h] = { n: i, restantes: TRAGOS_POR_PERSONA }; n++; }
+    }
+    if (!n) msg('Ya existen los ' + CANTIDAD_QR + ' registros con esa clave.');
+    else { await db.ref(RUTA).update(nuevos); msg(`Listo: ${n} registros creados.`); }
+  } catch (e) { msg('No se pudo crear. Revisa las reglas de Firebase y el internet.'); }
+  $('#btn-crear').disabled = false;
+}
+
+async function hoja() {
+  const clave = claveMaestra(); if (!clave) return;
+  const g = $('#hoja'); g.innerHTML = ''; msg('Generando QR…');
+  for (let i = 1; i <= CANTIDAD_QR; i++) {
+    const c = document.createElement('div'); c.className = 'tarjeta';
+    const q = document.createElement('div'); c.appendChild(q);
+    new QRCode(q, { text: await tokenDe(clave, i), width: 112, height: 112, correctLevel: QRCode.CorrectLevel.M });
+    const p = document.createElement('p'); p.textContent = 'N° ' + pad(i) + ' · ' + TRAGOS_POR_PERSONA + ' tragos';
+    c.appendChild(p); g.appendChild(c);
+    if (i % 25 === 0) await new Promise(r => setTimeout(r));
+  }
+  msg('Hoja lista abajo. Con Imprimir puedes elegir "Guardar como PDF".');
+  $('#btn-print').hidden = false;
+}
+
+async function csv() {
+  const clave = claveMaestra(); if (!clave) return;
+  const base = location.origin + location.pathname;
+  let t = 'numero,enlace\n';
+  for (let i = 1; i <= CANTIDAD_QR; i++) t += `${i},${base}?t=${await tokenDe(clave, i)}\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([t], { type: 'text/csv' }));
+  a.download = 'enlaces-qr.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  msg('Descargado. Cada enlace muestra el QR de un invitado, útil para enviarlo por WhatsApp.');
+}
+
+function resumen() {
+  const v = Object.values(datos);
+  $('#r-tot').textContent = v.length;
+  $('#r-nom').textContent = v.filter(x => x.nombre).length;
+  $('#r-ent').textContent = v.reduce((s, x) => s + (TRAGOS_POR_PERSONA - x.restantes), 0);
+  $('#r-res').textContent = v.reduce((s, x) => s + x.restantes, 0);
+}
+function lista() {
+  const q = $('#buscar').value.trim().toLowerCase();
+  const box = $('#lista'); box.innerHTML = '';
+  const filas = Object.values(datos)
+    .filter(x => q ? ((x.nombre || '').toLowerCase().includes(q) || String(x.n) === q || pad(x.n) === q) : x.nombre)
+    .sort((a, b) => a.n - b.n).slice(0, 100);
+  if (!filas.length) {
+    const p = document.createElement('p');
+    p.textContent = q ? 'Sin resultados.' : 'Aún no hay invitados registrados.';
+    box.appendChild(p); return;
+  }
+  filas.forEach(x => {
+    const f = document.createElement('div'); f.className = 'fila';
+    const a = document.createElement('span'); a.textContent = x.nombre || 'Sin nombre';
+    const s = document.createElement('small'); s.textContent = `N° ${pad(x.n)} · ${x.restantes} de ${TRAGOS_POR_PERSONA}`;
+    f.append(a, s); box.appendChild(f);
+  });
+}
+</script>
+</body>
+</html>
