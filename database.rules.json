@@ -1,0 +1,27 @@
+{
+  "rules": {
+    "tragos": {
+      ".read": true,
+      "$h": {
+        ".validate": "newData.hasChildren(['n','restantes'])",
+        "n": { ".validate": "newData.isNumber()" },
+        "restantes": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 50" },
+        "nombre": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "ultimo": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false },
+        ".write": "(!data.exists() && newData.child('restantes').val() <= 50) || (data.exists() && newData.exists() && newData.child('restantes').val() >= data.child('restantes').val() - 1 && newData.child('restantes').val() <= data.child('restantes').val() && newData.child('n').val() === data.child('n').val() && (!data.child('nombre').exists() || newData.child('nombre').val() === data.child('nombre').val())) || (newData.parent().parent().child('reinicio').val() === '8fc7e07a5ac90638fa04ecc1e86514d3388bacf9d98247876001512617b2dc8c' && !data.parent().parent().child('reinicio').exists() && (!data.exists() || newData.child('n').val() === data.child('n').val()))"
+      }
+    },
+    "configuracion": {
+      ".read": true,
+      "tragos": {
+        ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 50",
+        ".write": "newData.parent().parent().child('reinicio').val() === '8fc7e07a5ac90638fa04ecc1e86514d3388bacf9d98247876001512617b2dc8c' && !data.parent().parent().child('reinicio').exists()"
+      }
+    },
+    "reinicio": {
+      ".validate": "newData.isString()",
+      ".write": true
+    }
+  }
+}

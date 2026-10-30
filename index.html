@@ -231,8 +231,6 @@ const CONFIG = {
 };
 let TRAGOS_POR_PERSONA = 5; // valor inicial; se cambia desde el panel de administrador
 const RUTA_CFG = "configuracion/tragos";
-// Código para reiniciar (se guarda solo su huella SHA-256; no distingue mayúsculas ni espacios)
-const CODIGO_REINICIO_HASH = "8fc7e07a5ac90638fa04ecc1e86514d3388bacf9d98247876001512617b2dc8c";
 const CANTIDAD_QR = 500;
 const SEGUNDOS_DOBLE_ESCANEO = 60;
 const RUTA = "tragos";
@@ -517,23 +515,39 @@ async function csv() {
   msg('Descargado. Cada enlace muestra el QR de un invitado, útil para enviarlo por WhatsApp.');
 }
 
+/* Acciones de administrador: Firebase las acepta solo si van con la huella del código de reinicio
+   (la huella correcta vive únicamente en las reglas de Firebase, no en esta página). */
+async function pedirCodigo() {
+  const cod = await dialogo({ titulo: 'Código de administrador', texto: 'Escribe el código para continuar.', pedirNombre: true, placeholder: 'Código', secreto: true, okTxt: 'Continuar', noTxt: 'Cancelar' });
+  if (!cod) return null;
+  return await sha256(cod.toLowerCase().replace(/\s+/g, ''));
+}
+async function escribirAdmin(cambios) {
+  const h = await pedirCodigo(); if (!h) return false;
+  try {
+    await db.ref('reinicio').remove();
+    await db.ref().update({ ...cambios, reinicio: h });
+    return true;
+  } catch (e) {
+    msg(e && e.code === 'PERMISSION_DENIED' ? 'Código incorrecto. No se cambió nada.' : 'No se pudo guardar. Revisa el internet.');
+    return false;
+  } finally { db.ref('reinicio').remove().catch(() => {}); }
+}
+
 async function guardarCfg() {
   const v = parseInt($('#cfg-tragos').value, 10);
   if (!(v >= 1 && v <= 50)) { msg('Escribe un número de tragos entre 1 y 50.'); return; }
-  try { await db.ref(RUTA_CFG).set(v); TRAGOS_POR_PERSONA = v; msg(`Guardado: ${v} tragos por persona. Pulsa "Reiniciar todo" para aplicarlo a los QR ya creados.`); }
-  catch (e) { msg('No se pudo guardar. Revisa las reglas de Firebase y el internet.'); }
+  if (await escribirAdmin({ [RUTA_CFG]: v })) { TRAGOS_POR_PERSONA = v; msg(`Guardado: ${v} tragos por persona. Pulsa "Reiniciar todo" para aplicarlo a los QR ya creados.`); }
 }
 
 async function reiniciar() {
   const n = Object.keys(datos).length;
   if (!n) { msg('No hay registros para reiniciar.'); return; }
-  const cod = await dialogo({ titulo: '¿Reiniciar todo?', texto: `Los ${n} invitados quedarán con ${TRAGOS_POR_PERSONA} tragos y sin nombre. No se puede deshacer. Escribe el código de reinicio.`, pedirNombre: true, placeholder: 'Código de reinicio', secreto: true, okTxt: 'Reiniciar', noTxt: 'Cancelar' });
-  if (!cod) return;
-  if (await sha256(cod.toLowerCase().replace(/\s+/g, '')) !== CODIGO_REINICIO_HASH) { msg('Código incorrecto. No se reinició nada.'); return; }
+  const ok = await dialogo({ titulo: '¿Reiniciar todo?', texto: `Los ${n} invitados quedarán con ${TRAGOS_POR_PERSONA} tragos y sin nombre. No se puede deshacer.`, okTxt: 'Continuar', noTxt: 'Cancelar' });
+  if (!ok) return;
   const u = {};
-  Object.keys(datos).forEach(h => { u[h + '/restantes'] = TRAGOS_POR_PERSONA; u[h + '/nombre'] = null; u[h + '/ultimo'] = null; });
-  try { await db.ref(RUTA).update(u); msg(`Listo: ${n} invitados reiniciados con ${TRAGOS_POR_PERSONA} tragos.`); }
-  catch (e) { msg('No se pudo reiniciar. Revisa las reglas de Firebase y el internet.'); }
+  Object.keys(datos).forEach(h => { u[RUTA + '/' + h + '/restantes'] = TRAGOS_POR_PERSONA; u[RUTA + '/' + h + '/nombre'] = null; u[RUTA + '/' + h + '/ultimo'] = null; });
+  if (await escribirAdmin(u)) msg(`Listo: ${n} invitados reiniciados con ${TRAGOS_POR_PERSONA} tragos.`);
 }
 
 function resumen() {
@@ -562,7 +576,9 @@ function lista() {
     const ctl = document.createElement('div'); ctl.className = 'ctl';
     [['−', -1], ['+', 1]].forEach(([t, dlt]) => {
       const b = document.createElement('button'); b.textContent = t;
-      b.onclick = () => db.ref(RUTA + '/' + x.h + '/restantes').transaction(c => Math.max(0, (c || 0) + dlt));
+      b.onclick = () => dlt < 0
+        ? db.ref(RUTA + '/' + x.h + '/restantes').transaction(c => Math.max(0, (c || 0) + dlt))
+        : escribirAdmin({ [RUTA + '/' + x.h + '/restantes']: Math.min(50, x.restantes + 1) });
       ctl.appendChild(b);
     });
     f.append(info, ctl); box.appendChild(f);
